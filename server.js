@@ -191,7 +191,7 @@ function handler(req, res) {
           </ul>
         </div>
 
-        <a href="/control" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+        <a href="/api/control" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
           🎮 Open Interactive Simulation Controls
         </a>
       </div>
@@ -217,7 +217,10 @@ function renderControlPage(mode) {
         .container { max-width: 800px; margin: 0 auto; background: rgba(18, 24, 38, 0.9); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 36px; box-shadow: 0 25px 50px rgba(0,0,0,0.6); }
         h1 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
         h1 span { color: #38bdf8; }
-        p.subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 28px; }
+        p.subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
+        .nav-links { margin-bottom: 24px; display: flex; gap: 12px; }
+        .nav-links a { color: #38bdf8; font-size: 13px; text-decoration: none; padding: 6px 14px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .nav-links a:hover { background: rgba(56,189,248,0.2); }
         .status-box { background: #0f172a; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 18px 24px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: center; }
         .badge { padding: 6px 14px; border-radius: 9999px; font-size: 13px; font-weight: 700; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
         .badge.healthy { background: rgba(16,185,129,0.2); color: #10b981; border: 1px solid rgba(16,185,129,0.4); }
@@ -237,6 +240,10 @@ function renderControlPage(mode) {
       <div class="container">
         <h1>🎮 PulseGuard <span>Simulator & Test Site</span></h1>
         <p class="subtitle">Click any button below to instantly simulate outages, Hostinger Coming Soon placeholders, database crashes, or timeouts.</p>
+
+        <div class="nav-links">
+          <a href="/" target="_blank">🌐 Open Simulated Website in New Tab ↗</a>
+        </div>
 
         <div class="status-box">
           <div>

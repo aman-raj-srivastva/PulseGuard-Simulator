@@ -1,14 +1,18 @@
 {
   "version": 2,
-  "rewrites": [
+  "redirects": [
     {
       "source": "/control",
-      "destination": "/api/control"
+      "destination": "/api/control",
+      "permanent": false
     },
     {
       "source": "/control/",
-      "destination": "/api/control"
-    },
+      "destination": "/api/control",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
     {
       "source": "/api/set-mode",
       "destination": "/api/set-mode"
