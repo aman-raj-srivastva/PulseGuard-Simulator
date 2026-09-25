@@ -13,18 +13,53 @@ function getCookie(req, name) {
   return match ? decodeURIComponent(match[2]) : null;
 }
 
+function resolvePath(req, parsedUrl) {
+  // 1. Query parameter passed via Vercel rewrite (?route=... or ?path=...)
+  if (parsedUrl.query && (parsedUrl.query.route || parsedUrl.query.path)) {
+    const r = parsedUrl.query.route || parsedUrl.query.path;
+    return r.startsWith('/') ? r : '/' + r;
+  }
+
+  // 2. Vercel headers: x-matched-path (e.g. /control), x-forwarded-uri, or x-real-path
+  const headerPath = req.headers['x-matched-path'] || req.headers['x-forwarded-uri'] || req.headers['x-real-path'];
+  if (headerPath) {
+    const cleanHeader = headerPath.split('?')[0];
+    if (cleanHeader && !cleanHeader.startsWith('/api/index')) {
+      return cleanHeader;
+    }
+  }
+
+  // 3. Fallback to standard parsedUrl pathname
+  let p = parsedUrl.pathname || '/';
+  if (p === '/api/index.js' || p === '/api/index') {
+    return '/';
+  }
+  return p;
+}
+
 function handler(req, res) {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname || '/';
+  const pathname = resolvePath(req, parsedUrl);
+  const cleanPath = pathname.replace(/\/+$/, '') || '/';
+
+  // Check if control dashboard is requested
+  const isControlPage = cleanPath === '/control' || 
+                        cleanPath.endsWith('/control') || 
+                        parsedUrl.query.view === 'control' || 
+                        parsedUrl.query.route === 'control';
 
   // Support direct path-based mode: /mode/:modeName (e.g. /mode/coming-soon)
   let pathMode = null;
-  if (pathname.startsWith('/mode/')) {
-    pathMode = pathname.split('/')[2];
+  if (cleanPath.startsWith('/mode/')) {
+    pathMode = cleanPath.split('/')[2];
   }
 
   // Handle Control / Mode Switch API
-  if (pathname === '/api/set-mode') {
+  const isSetModeApi = cleanPath === '/api/set-mode' || 
+                       parsedUrl.query.route === 'api/set-mode' || 
+                       parsedUrl.query.route === 'set-mode';
+
+  if (isSetModeApi) {
     const newMode = parsedUrl.query.mode;
     if (newMode) {
       currentMode = newMode;
@@ -41,20 +76,20 @@ function handler(req, res) {
   // Resolve active mode priority: Query param > Path prefix > Cookie > In-memory
   const activeMode = parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
 
+  // 1. Interactive Control Dashboard (Always accessible regardless of failure mode)
+  if (isControlPage) {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    return res.end(renderControlPage(activeMode));
+  }
+
   // Handle Simulation Delay if in timeout mode
-  if (activeMode === 'timeout' && pathname !== '/control') {
+  if (activeMode === 'timeout') {
     console.log('[TEST SITE] Simulating 10s timeout / hanging request...');
     setTimeout(() => {
       res.writeHead(504, { 'Content-Type': 'text/html' });
       res.end('<h1>504 Gateway Timeout</h1>');
     }, 10000);
     return;
-  }
-
-  // 1. Interactive Control Dashboard (Always accessible)
-  if (pathname === '/control') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    return res.end(renderControlPage(activeMode));
   }
 
   // 2. Mode: 500 Internal Server Error
@@ -85,7 +120,7 @@ function handler(req, res) {
         <h1>Error establishing a database connection</h1>
         <p>This either means that the username and password information in your wp-config.php file is incorrect or that contact with the database server at localhost could not be established.</p>
         <hr>
-        <a href="/control">⚙️ Open Test Site Control Panel</a>
+        <a href="/control" style="color:#2563eb;">⚙️ Open Test Site Control Panel</a>
       </body>
       </html>
     `);
@@ -205,7 +240,7 @@ function renderControlPage(mode) {
 
         <div class="status-box">
           <div>
-            <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;font-weight:600;">Current Site Mode</div>
+            <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;font-weight:600;">Current Site Target</div>
             <div style="font-size:18px;font-weight:800;margin-top:2px;" id="currentUrl">Simulator Active</div>
           </div>
           <span class="badge ${badgeClass}" id="currentBadge">
@@ -258,7 +293,6 @@ function renderControlPage(mode) {
         document.getElementById('currentUrl').textContent = window.location.origin;
 
         async function setMode(mode) {
-          // Set cookie client-side as well for instant serverless consistency
           document.cookie = "sim_mode=" + mode + "; path=/; max-age=86400; SameSite=Lax";
           try {
             await fetch('/api/set-mode?mode=' + mode);
@@ -282,4 +316,5 @@ if (require.main === module) {
   });
 }
 
+handler.renderControlPage = renderControlPage;
 module.exports = handler;
