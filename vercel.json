@@ -2,8 +2,24 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/control",
+      "destination": "/api/control.js"
+    },
+    {
+      "source": "/control/",
+      "destination": "/api/control.js"
+    },
+    {
+      "source": "/api/set-mode",
+      "destination": "/api/set-mode.js"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/api/index.js"
+      "destination": "/api/[...all].js"
     }
   ]
 }
