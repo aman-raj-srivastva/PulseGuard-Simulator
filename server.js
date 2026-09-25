@@ -13,40 +13,10 @@ function getCookie(req, name) {
   return match ? decodeURIComponent(match[2]) : null;
 }
 
-function resolvePath(req, parsedUrl) {
-  // 1. Query parameter passed via Vercel rewrite (?route=... or ?path=...)
-  if (parsedUrl.query && (parsedUrl.query.route || parsedUrl.query.path)) {
-    const r = parsedUrl.query.route || parsedUrl.query.path;
-    return r.startsWith('/') ? r : '/' + r;
-  }
-
-  // 2. Vercel headers: x-matched-path (e.g. /control), x-forwarded-uri, or x-real-path
-  const headerPath = req.headers['x-matched-path'] || req.headers['x-forwarded-uri'] || req.headers['x-real-path'];
-  if (headerPath) {
-    const cleanHeader = headerPath.split('?')[0];
-    if (cleanHeader && !cleanHeader.startsWith('/api/index')) {
-      return cleanHeader;
-    }
-  }
-
-  // 3. Fallback to standard parsedUrl pathname
-  let p = parsedUrl.pathname || '/';
-  if (p === '/api/index.js' || p === '/api/index') {
-    return '/';
-  }
-  return p;
-}
-
 function handler(req, res) {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = resolvePath(req, parsedUrl);
-  const cleanPath = pathname.replace(/\/+$/, '') || '/';
-
-  // Check if control dashboard is requested
-  const isControlPage = cleanPath === '/control' || 
-                        cleanPath.endsWith('/control') || 
-                        parsedUrl.query.view === 'control' || 
-                        parsedUrl.query.route === 'control';
+  const rawPath = parsedUrl.pathname || '/';
+  const cleanPath = rawPath.replace(/\/+$/, '') || '/';
 
   // Support direct path-based mode: /mode/:modeName (e.g. /mode/coming-soon)
   let pathMode = null;
@@ -55,11 +25,7 @@ function handler(req, res) {
   }
 
   // Handle Control / Mode Switch API
-  const isSetModeApi = cleanPath === '/api/set-mode' || 
-                       parsedUrl.query.route === 'api/set-mode' || 
-                       parsedUrl.query.route === 'set-mode';
-
-  if (isSetModeApi) {
+  if (cleanPath === '/api/set-mode' || parsedUrl.pathname === '/api/set-mode') {
     const newMode = parsedUrl.query.mode;
     if (newMode) {
       currentMode = newMode;
@@ -76,13 +42,24 @@ function handler(req, res) {
   // Resolve active mode priority: Query param > Path prefix > Cookie > In-memory
   const activeMode = parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
 
-  // 1. Interactive Control Dashboard (Always accessible regardless of failure mode)
+  // Decide whether to show Control Dashboard vs Simulated Target Site
+  // Show Control Dashboard if:
+  // - URL is /control
+  // - URL is /api/control
+  // - Query is ?view=control
+  // - OR root path / is requested in a browser without explicit ?view=site
+  const wantsSiteView = parsedUrl.query.view === 'site' || cleanPath === '/site' || cleanPath === '/about' || cleanPath === '/products' || cleanPath === '/api/status';
+  const isControlPage = cleanPath === '/control' || cleanPath === '/api/control' || parsedUrl.query.view === 'control' || (!wantsSiteView && cleanPath === '/');
+
+  // 1. Control Dashboard: Always renders if requested, or by default at root /
   if (isControlPage) {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     return res.end(renderControlPage(activeMode));
   }
 
-  // Handle Simulation Delay if in timeout mode
+  // If we are serving the simulated site, apply failure modes:
+
+  // Mode: Timeout / Hanging
   if (activeMode === 'timeout') {
     console.log('[TEST SITE] Simulating 10s timeout / hanging request...');
     setTimeout(() => {
@@ -92,7 +69,7 @@ function handler(req, res) {
     return;
   }
 
-  // 2. Mode: 500 Internal Server Error
+  // Mode: 500 Internal Server Error
   if (activeMode === 'server-error-500') {
     res.writeHead(500, { 'Content-Type': 'text/html' });
     return res.end(`
@@ -109,7 +86,7 @@ function handler(req, res) {
     `);
   }
 
-  // 3. Mode: Database Error
+  // Mode: Database Error
   if (activeMode === 'database-error') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     return res.end(`
@@ -126,7 +103,7 @@ function handler(req, res) {
     `);
   }
 
-  // 4. Mode: Hostinger Coming Soon / Maintenance Mode (Returns HTTP 200 with placeholder)
+  // Mode: Hostinger Coming Soon / Maintenance Mode
   if (activeMode === 'coming-soon') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     return res.end(`
@@ -149,7 +126,7 @@ function handler(req, res) {
     `);
   }
 
-  // 5. Mode: 404 Not Found
+  // Mode: 404 Not Found
   if (activeMode === 'not-found') {
     res.writeHead(404, { 'Content-Type': 'text/html' });
     return res.end(`
@@ -158,14 +135,14 @@ function handler(req, res) {
       <head><title>404 Not Found</title></head>
       <body style="font-family:sans-serif;padding:40px;background:#1e1e2f;color:#fff;">
         <h1 style="color:#f59e0b;">404 Page Not Found</h1>
-        <p>The requested endpoint <code>${pathname}</code> was not found on this server.</p>
+        <p>The requested endpoint <code>${cleanPath}</code> was not found on this server.</p>
         <a href="/control" style="color:#38bdf8;">⚙️ Control Panel</a>
       </body>
       </html>
     `);
   }
 
-  // 6. Mode: Healthy (Default)
+  // Mode: Healthy Site View
   res.writeHead(200, { 'Content-Type': 'text/html' });
   res.end(`
     <!DOCTYPE html>
@@ -179,19 +156,19 @@ function handler(req, res) {
       <div style="max-width:700px;margin:0 auto;background:#121826;padding:40px;border-radius:16px;border:1px solid rgba(255,255,255,0.1);box-shadow:0 20px 40px rgba(0,0,0,0.5);">
         <div style="display:inline-block;width:60px;height:60px;background:rgba(16,185,129,0.2);color:#10b981;border-radius:50%;line-height:60px;font-size:28px;margin-bottom:16px;">✓</div>
         <h1 style="font-size:28px;font-weight:800;margin-bottom:8px;">Test Website is ONLINE & Healthy</h1>
-        <p style="color:#94a3b8;margin-bottom:24px;">Current Route: <code>${pathname}</code> • HTTP Status: <strong>200 OK</strong></p>
+        <p style="color:#94a3b8;margin-bottom:24px;">Current Route: <code>${cleanPath}</code> • HTTP Status: <strong>200 OK</strong></p>
         
         <div style="background:#0f172a;padding:20px;border-radius:12px;text-align:left;margin-bottom:24px;border:1px solid rgba(255,255,255,0.06);">
           <h4 style="color:#38bdf8;margin-top:0;">Available Test Subpages:</h4>
           <ul style="color:#cbd5e1;padding-left:20px;line-height:1.8;">
-            <li><code>/</code> - Homepage</li>
+            <li><code>/?view=site</code> - Homepage</li>
             <li><code>/about</code> - About Us</li>
             <li><code>/products</code> - Products Catalog</li>
             <li><code>/api/status</code> - JSON API status</li>
           </ul>
         </div>
 
-        <a href="/api/control" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+        <a href="/control" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
           🎮 Open Interactive Simulation Controls
         </a>
       </div>
@@ -219,7 +196,7 @@ function renderControlPage(mode) {
         h1 span { color: #38bdf8; }
         p.subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
         .nav-links { margin-bottom: 24px; display: flex; gap: 12px; }
-        .nav-links a { color: #38bdf8; font-size: 13px; text-decoration: none; padding: 6px 14px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .nav-links a { color: #38bdf8; font-size: 13px; text-decoration: none; padding: 8px 16px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; transition: background 0.2s; }
         .nav-links a:hover { background: rgba(56,189,248,0.2); }
         .status-box { background: #0f172a; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 18px 24px; margin-bottom: 28px; display: flex; justify-content: space-between; align-items: center; }
         .badge { padding: 6px 14px; border-radius: 9999px; font-size: 13px; font-weight: 700; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; }
@@ -242,7 +219,7 @@ function renderControlPage(mode) {
         <p class="subtitle">Click any button below to instantly simulate outages, Hostinger Coming Soon placeholders, database crashes, or timeouts.</p>
 
         <div class="nav-links">
-          <a href="/" target="_blank">🌐 Open Simulated Website in New Tab ↗</a>
+          <a href="/?view=site" target="_blank">🌐 Open Simulated Website in New Tab ↗</a>
         </div>
 
         <div class="status-box">
@@ -290,8 +267,8 @@ function renderControlPage(mode) {
         <div class="instruction">
           <strong>💡 How to test with your Monitor:</strong><br>
           1. In your PulseGuard dashboard, click <strong>"+ Add Website"</strong>.<br>
-          2. Name: <code>Sandbox Test Site</code> | Base URL: <code>https://YOUR_VERCEL_DOMAIN.vercel.app</code> | Threshold: <code>1</code>.<br>
-          3. Change modes from <code>/control</code>, or append <code>?mode=coming-soon</code> or <code>/mode/database-error</code> directly to test specific routes.<br>
+          2. Name: <code>Sandbox Test Site</code> | Base URL: <code>https://pulse-guard-simulator.vercel.app/?view=site</code> | Threshold: <code>1</code>.<br>
+          3. Change modes anytime from this control dashboard, or append <code>?mode=coming-soon</code> or <code>/mode/database-error</code> directly.<br>
           4. Click <strong>"Check Now"</strong> in PulseGuard to see instant detection & alert notifications!
         </div>
       </div>
