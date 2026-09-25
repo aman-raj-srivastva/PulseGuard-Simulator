@@ -14,53 +14,61 @@ function getCookie(req, name) {
 }
 
 function resolvePath(req, parsedUrl) {
-  // 1. Query parameter passed via Vercel rewrite (?route=... or ?path=...)
-  if (parsedUrl.query && (parsedUrl.query.route || parsedUrl.query.path)) {
-    const r = parsedUrl.query.route || parsedUrl.query.path;
-    return r.startsWith('/') ? r : '/' + r;
+  // 1. Vercel / Proxy headers
+  const xForwarded = req.headers['x-forwarded-uri'] || 
+                     req.headers['x-matched-path'] || 
+                     req.headers['x-real-path'] || 
+                     req.headers['x-original-url'];
+  if (xForwarded) {
+    const clean = xForwarded.split('?')[0];
+    if (clean && !clean.startsWith('/api/index')) {
+      return clean;
+    }
   }
 
-  // 2. Vercel headers: x-matched-path (e.g. /control), x-forwarded-uri, or x-real-path
-  const headerPath = req.headers['x-matched-path'] || req.headers['x-forwarded-uri'] || req.headers['x-real-path'];
-  if (headerPath) {
-    const cleanHeader = headerPath.split('?')[0];
-    if (cleanHeader && !cleanHeader.startsWith('/api/index')) {
-      return cleanHeader;
-    }
+  // 2. Query parameter passed via Vercel rewrite (?route=... or ?path=...)
+  const queryObj = (req.query) || (parsedUrl && parsedUrl.query) || {};
+  if (queryObj.route || queryObj.path) {
+    const r = queryObj.route || queryObj.path;
+    return r.startsWith('/') ? r : '/' + r;
   }
 
   // 3. Fallback to standard parsedUrl pathname
   let p = parsedUrl.pathname || '/';
-  if (p === '/api/index.js' || p === '/api/index') {
+  if (p === '/api/index.js' || p === '/api/index' || p === '/api') {
     return '/';
   }
   return p;
 }
 
 function handler(req, res) {
-  const parsedUrl = url.parse(req.url, true);
+  const parsedUrl = url.parse(req.url || '/', true);
   const pathname = resolvePath(req, parsedUrl);
   const cleanPath = pathname.replace(/\/+$/, '') || '/';
+  const queryObj = (req.query) || (parsedUrl && parsedUrl.query) || {};
 
   // Check if control dashboard is requested
   const isControlPage = cleanPath === '/control' || 
                         cleanPath.endsWith('/control') || 
-                        parsedUrl.query.view === 'control' || 
-                        parsedUrl.query.route === 'control';
+                        queryObj.view === 'control' || 
+                        queryObj.route === 'control';
 
   // Support direct path-based mode: /mode/:modeName (e.g. /mode/coming-soon)
   let pathMode = null;
   if (cleanPath.startsWith('/mode/')) {
     pathMode = cleanPath.split('/')[2];
+    if (pathMode === '500') pathMode = 'server-error-500';
+    if (pathMode === 'db') pathMode = 'database-error';
+    if (pathMode === '404') pathMode = 'not-found';
   }
 
   // Handle Control / Mode Switch API
   const isSetModeApi = cleanPath === '/api/set-mode' || 
-                       parsedUrl.query.route === 'api/set-mode' || 
-                       parsedUrl.query.route === 'set-mode';
+                       queryObj.route === 'api/set-mode' || 
+                       queryObj.route === 'set-mode';
 
   if (isSetModeApi) {
-    const newMode = parsedUrl.query.mode;
+    const newMode = queryObj.mode || parsedUrl.query.mode;
     if (newMode) {
       currentMode = newMode;
       console.log(`[TEST SITE] Simulation mode changed to: ${currentMode}`);
@@ -74,11 +82,11 @@ function handler(req, res) {
   }
 
   // Resolve active mode priority: Query param > Path prefix > Cookie > In-memory
-  const activeMode = parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
+  const activeMode = queryObj.mode || parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
 
   // 1. Interactive Control Dashboard (Always accessible regardless of failure mode)
   if (isControlPage) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(renderControlPage(activeMode));
   }
 
@@ -86,7 +94,7 @@ function handler(req, res) {
   if (activeMode === 'timeout') {
     console.log('[TEST SITE] Simulating 10s timeout / hanging request...');
     setTimeout(() => {
-      res.writeHead(504, { 'Content-Type': 'text/html' });
+      res.writeHead(504, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end('<h1>504 Gateway Timeout</h1>');
     }, 10000);
     return;
@@ -94,33 +102,36 @@ function handler(req, res) {
 
   // 2. Mode: 500 Internal Server Error
   if (activeMode === 'server-error-500') {
-    res.writeHead(500, { 'Content-Type': 'text/html' });
+    res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(`
       <!DOCTYPE html>
       <html>
       <head><title>500 Internal Server Error</title></head>
       <body style="font-family:sans-serif;padding:40px;background:#1e1e2f;color:#fff;">
-        <h1 style="color:#ff4d4d;">500 Internal Server Error</h1>
-        <p>Fatal PHP Crash in /var/www/site/index.php on line 42</p>
-        <hr style="border-color:#444;">
-        <a href="/control" style="color:#38bdf8;">⚙️ Open Test Site Control Panel to change mode</a>
+        <h1 style="color:#f43f5e;">HTTP 500 - Internal Server Error</h1>
+        <p>Fatal PHP Crash: Uncaught Error: Call to undefined function wp_load_engine() in /var/www/html/wp-settings.php:124</p>
+        <hr>
+        <a href="/control" style="color:#38bdf8;">⚙️ Back to Control Panel</a>
       </body>
       </html>
     `);
   }
 
-  // 3. Mode: Database Error
+  // 3. Mode: Database Connection Error (WordPress DB Crash)
   if (activeMode === 'database-error') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(`
       <!DOCTYPE html>
-      <html>
-      <head><title>Database Error</title></head>
-      <body style="font-family:sans-serif;padding:40px;background:#f8f9fa;color:#333;">
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>Database Error</title>
+      </head>
+      <body style="font-family:sans-serif;padding:50px;color:#333;background:#f9f9f9;">
         <h1>Error establishing a database connection</h1>
         <p>This either means that the username and password information in your wp-config.php file is incorrect or that contact with the database server at localhost could not be established.</p>
         <hr>
-        <a href="/control" style="color:#2563eb;">⚙️ Open Test Site Control Panel</a>
+        <a href="/control" style="color:#2563eb;">⚙️ Back to Control Panel</a>
       </body>
       </html>
     `);
@@ -128,7 +139,7 @@ function handler(req, res) {
 
   // 4. Mode: Hostinger Coming Soon / Maintenance Mode (Returns HTTP 200 with placeholder)
   if (activeMode === 'coming-soon') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(`
       <!DOCTYPE html>
       <html>
@@ -151,7 +162,7 @@ function handler(req, res) {
 
   // 5. Mode: 404 Not Found
   if (activeMode === 'not-found') {
-    res.writeHead(404, { 'Content-Type': 'text/html' });
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(`
       <!DOCTYPE html>
       <html>
@@ -159,14 +170,14 @@ function handler(req, res) {
       <body style="font-family:sans-serif;padding:40px;background:#1e1e2f;color:#fff;">
         <h1 style="color:#f59e0b;">404 Page Not Found</h1>
         <p>The requested endpoint <code>${pathname}</code> was not found on this server.</p>
-        <a href="/control" style="color:#38bdf8;">⚙️ Control Panel</a>
+        <a href="/control" style="color:#38bdf8;">⚙️ Back to Control Panel</a>
       </body>
       </html>
     `);
   }
 
   // 6. Mode: Healthy (Default)
-  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`
     <!DOCTYPE html>
     <html lang="en">
@@ -281,16 +292,18 @@ function renderControlPage(mode) {
         </div>
 
         <div class="instruction">
-          <strong>💡 How to test with your Monitor:</strong><br>
+          <strong>💡 How to test with your PulseGuard Monitor:</strong><br>
           1. In your PulseGuard dashboard, click <strong>"+ Add Website"</strong>.<br>
-          2. Name: <code>Sandbox Test Site</code> | Base URL: <code>https://YOUR_VERCEL_DOMAIN.vercel.app</code> | Threshold: <code>1</code>.<br>
-          3. Change modes from <code>/control</code>, or append <code>?mode=coming-soon</code> or <code>/mode/database-error</code> directly to test specific routes.<br>
-          4. Click <strong>"Check Now"</strong> in PulseGuard to see instant detection & alert notifications!
+          2. Name: <code>Sandbox Test Site</code> | Base URL: <code id="siteBaseUrl">https://pulse-guard-simulator.vercel.app</code> | Threshold: <code>1</code>.<br>
+          3. Change modes from this control panel, or test direct URLs like <code>/mode/coming-soon</code> or <code>/mode/server-error-500</code>.<br>
+          4. When you click <strong>"Check Now"</strong> in PulseGuard (or wait for the 1m auto-check), it will immediately catch the outage and notify Telegram!
         </div>
       </div>
 
       <script>
         document.getElementById('currentUrl').textContent = window.location.origin;
+        const baseEl = document.getElementById('siteBaseUrl');
+        if (baseEl) baseEl.textContent = window.location.origin;
 
         async function setMode(mode) {
           document.cookie = "sim_mode=" + mode + "; path=/; max-age=86400; SameSite=Lax";
