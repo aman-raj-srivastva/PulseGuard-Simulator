@@ -1,0 +1,16 @@
+{
+  "name": "pulseguard-simulator",
+  "version": "1.0.0",
+  "description": "Simulation testbed for PulseGuard Website Monitoring System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "pulseguard",
+    "simulator",
+    "monitoring",
+    "uptime"
+  ],
+  "license": "MIT"
+}

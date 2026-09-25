@@ -1,15 +1,27 @@
 const http = require('http');
 const url = require('url');
 
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
-// State of the test site
+// State of the test site (in-memory fallback)
 let currentMode = 'healthy'; // 'healthy', 'coming-soon', 'server-error-500', 'database-error', 'timeout', 'not-found'
-let responseDelayMs = 0;
 
-const server = http.createServer((req, res) => {
+function getCookie(req, name) {
+  const cookieHeader = req.headers && req.headers.cookie;
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+function handler(req, res) {
   const parsedUrl = url.parse(req.url, true);
-  const pathname = parsedUrl.pathname;
+  const pathname = parsedUrl.pathname || '/';
+
+  // Support direct path-based mode: /mode/:modeName (e.g. /mode/coming-soon)
+  let pathMode = null;
+  if (pathname.startsWith('/mode/')) {
+    pathMode = pathname.split('/')[2];
+  }
 
   // Handle Control / Mode Switch API
   if (pathname === '/api/set-mode') {
@@ -18,28 +30,35 @@ const server = http.createServer((req, res) => {
       currentMode = newMode;
       console.log(`[TEST SITE] Simulation mode changed to: ${currentMode}`);
     }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ success: true, currentMode }));
+    const modeToSet = newMode || currentMode;
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `sim_mode=${modeToSet}; Path=/; Max-Age=86400; SameSite=Lax`
+    });
+    return res.end(JSON.stringify({ success: true, currentMode: modeToSet }));
   }
 
+  // Resolve active mode priority: Query param > Path prefix > Cookie > In-memory
+  const activeMode = parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
+
   // Handle Simulation Delay if in timeout mode
-  if (currentMode === 'timeout' && pathname !== '/control') {
-    console.log('[TEST SITE] Simulating 15s timeout / hanging request...');
+  if (activeMode === 'timeout' && pathname !== '/control') {
+    console.log('[TEST SITE] Simulating 10s timeout / hanging request...');
     setTimeout(() => {
       res.writeHead(504, { 'Content-Type': 'text/html' });
       res.end('<h1>504 Gateway Timeout</h1>');
-    }, 15000);
+    }, 10000);
     return;
   }
 
   // 1. Interactive Control Dashboard (Always accessible)
   if (pathname === '/control') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    return res.end(renderControlPage());
+    return res.end(renderControlPage(activeMode));
   }
 
   // 2. Mode: 500 Internal Server Error
-  if (currentMode === 'server-error-500') {
+  if (activeMode === 'server-error-500') {
     res.writeHead(500, { 'Content-Type': 'text/html' });
     return res.end(`
       <!DOCTYPE html>
@@ -56,7 +75,7 @@ const server = http.createServer((req, res) => {
   }
 
   // 3. Mode: Database Error
-  if (currentMode === 'database-error') {
+  if (activeMode === 'database-error') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     return res.end(`
       <!DOCTYPE html>
@@ -73,7 +92,7 @@ const server = http.createServer((req, res) => {
   }
 
   // 4. Mode: Hostinger Coming Soon / Maintenance Mode (Returns HTTP 200 with placeholder)
-  if (currentMode === 'coming-soon') {
+  if (activeMode === 'coming-soon') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     return res.end(`
       <!DOCTYPE html>
@@ -96,7 +115,7 @@ const server = http.createServer((req, res) => {
   }
 
   // 5. Mode: 404 Not Found
-  if (currentMode === 'not-found') {
+  if (activeMode === 'not-found') {
     res.writeHead(404, { 'Content-Type': 'text/html' });
     return res.end(`
       <!DOCTYPE html>
@@ -144,9 +163,12 @@ const server = http.createServer((req, res) => {
     </body>
     </html>
   `);
-});
+}
 
-function renderControlPage() {
+function renderControlPage(mode) {
+  const activeMode = mode || 'healthy';
+  const badgeClass = activeMode === 'healthy' ? 'healthy' : (activeMode === 'coming-soon' ? 'warn' : 'error');
+
   return `
     <!DOCTYPE html>
     <html lang="en">
@@ -184,40 +206,40 @@ function renderControlPage() {
         <div class="status-box">
           <div>
             <div style="font-size:12px;color:#94a3b8;text-transform:uppercase;font-weight:600;">Current Site Mode</div>
-            <div style="font-size:18px;font-weight:800;margin-top:2px;">http://localhost:5000</div>
+            <div style="font-size:18px;font-weight:800;margin-top:2px;" id="currentUrl">Simulator Active</div>
           </div>
-          <span class="badge ${currentMode === 'healthy' ? 'healthy' : (currentMode === 'coming-soon' ? 'warn' : 'error')}" id="currentBadge">
-            ${currentMode}
+          <span class="badge ${badgeClass}" id="currentBadge">
+            ${activeMode}
           </span>
         </div>
 
         <div class="grid">
-          <button class="sim-btn ${currentMode === 'healthy' ? 'active' : ''}" onclick="setMode('healthy')">
+          <button class="sim-btn ${activeMode === 'healthy' ? 'active' : ''}" onclick="setMode('healthy')">
             <strong>🟢 1. Normal / Healthy Site</strong>
             <span>Returns clean HTTP 200 OK with normal HTML content.</span>
           </button>
 
-          <button class="sim-btn ${currentMode === 'coming-soon' ? 'active' : ''}" onclick="setMode('coming-soon')">
+          <button class="sim-btn ${activeMode === 'coming-soon' ? 'active' : ''}" onclick="setMode('coming-soon')">
             <strong>🟡 2. Hostinger "Coming Soon" Mode</strong>
             <span>Returns HTTP 200 with Hostinger "Coming Soon" placeholder to test deep content detection.</span>
           </button>
 
-          <button class="sim-btn ${currentMode === 'server-error-500' ? 'active' : ''}" onclick="setMode('server-error-500')">
+          <button class="sim-btn ${activeMode === 'server-error-500' ? 'active' : ''}" onclick="setMode('server-error-500')">
             <strong>🔴 3. HTTP 500 Server Error</strong>
             <span>Simulates PHP crash / 500 Internal Server Error.</span>
           </button>
 
-          <button class="sim-btn ${currentMode === 'database-error' ? 'active' : ''}" onclick="setMode('database-error')">
+          <button class="sim-btn ${activeMode === 'database-error' ? 'active' : ''}" onclick="setMode('database-error')">
             <strong>💥 4. Database Connection Crash</strong>
             <span>Simulates "Error establishing a database connection".</span>
           </button>
 
-          <button class="sim-btn ${currentMode === 'timeout' ? 'active' : ''}" onclick="setMode('timeout')">
-            <strong>⏳ 5. Timeout / Hanging (> 15s)</strong>
-            <span>Hangs requests for 15s to test connection timeout alerts.</span>
+          <button class="sim-btn ${activeMode === 'timeout' ? 'active' : ''}" onclick="setMode('timeout')">
+            <strong>⏳ 5. Timeout / Hanging (10s)</strong>
+            <span>Hangs requests for 10s to test connection timeout alerts.</span>
           </button>
 
-          <button class="sim-btn ${currentMode === 'not-found' ? 'active' : ''}" onclick="setMode('not-found')">
+          <button class="sim-btn ${activeMode === 'not-found' ? 'active' : ''}" onclick="setMode('not-found')">
             <strong>🚫 6. HTTP 404 Page Not Found</strong>
             <span>Simulates broken subpages / missing routes.</span>
           </button>
@@ -225,19 +247,23 @@ function renderControlPage() {
 
         <div class="instruction">
           <strong>💡 How to test with your Monitor:</strong><br>
-          1. In your PulseGuard dashboard (<a href="http://localhost:3000" target="_blank" style="color:#38bdf8;">http://localhost:3000</a>), click <strong>"+ Add Website"</strong>.<br>
-          2. Name: <code>Sandbox Test Site</code> | Base URL: <code>http://localhost:5000</code> | Threshold: <code>1</code>.<br>
-          3. Click any button above, then click <strong>"Check Now"</strong> in PulseGuard to see instant detection & alert notifications!
+          1. In your PulseGuard dashboard, click <strong>"+ Add Website"</strong>.<br>
+          2. Name: <code>Sandbox Test Site</code> | Base URL: <code>https://YOUR_VERCEL_DOMAIN.vercel.app</code> | Threshold: <code>1</code>.<br>
+          3. Change modes from <code>/control</code>, or append <code>?mode=coming-soon</code> or <code>/mode/database-error</code> directly to test specific routes.<br>
+          4. Click <strong>"Check Now"</strong> in PulseGuard to see instant detection & alert notifications!
         </div>
       </div>
 
       <script>
+        document.getElementById('currentUrl').textContent = window.location.origin;
+
         async function setMode(mode) {
-          const res = await fetch('/api/set-mode?mode=' + mode);
-          const data = await res.json();
-          if (data.success) {
-            window.location.reload();
-          }
+          // Set cookie client-side as well for instant serverless consistency
+          document.cookie = "sim_mode=" + mode + "; path=/; max-age=86400; SameSite=Lax";
+          try {
+            await fetch('/api/set-mode?mode=' + mode);
+          } catch(e) {}
+          window.location.reload();
         }
       </script>
     </body>
@@ -245,9 +271,15 @@ function renderControlPage() {
   `;
 }
 
-server.listen(PORT, () => {
-  console.log(`\n======================================================`);
-  console.log(`🎮 Test Sandbox running on http://localhost:${PORT}`);
-  console.log(`🕹️ Control Panel available at http://localhost:${PORT}/control`);
-  console.log(`======================================================\n`);
-});
+const server = http.createServer(handler);
+
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`\n======================================================`);
+    console.log(`🎮 Test Sandbox running on http://localhost:${PORT}`);
+    console.log(`🕹️ Control Panel available at http://localhost:${PORT}/control`);
+    console.log(`======================================================\n`);
+  });
+}
+
+module.exports = handler;

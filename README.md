@@ -97,6 +97,47 @@ curl "http://localhost:5000/api/set-mode?mode=healthy"
 
 ---
 
+## ☁️ Deploy to Vercel
+
+This repository is pre-configured with `vercel.json` and a serverless entrypoint in `api/index.js` so it deploys instantly to Vercel.
+
+### Method 1: Deploy with Vercel Web Dashboard (Recommended)
+
+1. Go to [vercel.com/new](https://vercel.com/new).
+2. Connect your GitHub account and import **`PulseGuard-Simulator`**.
+3. Leave all default settings (Framework Preset: **Other**, Root Directory: `./`).
+4. Click **Deploy**.
+5. Once deployment completes, Vercel gives you a live production URL (e.g. `https://pulseguard-simulator.vercel.app`).
+
+### Method 2: Deploy using Vercel CLI
+
+```bash
+# In the project directory:
+npx vercel
+```
+
+---
+
+## 🧪 Testing on Vercel
+
+Because Vercel runs in a serverless environment, the simulator supports three flexible ways to test modes in production:
+
+1. **Interactive Dashboard**:
+   Open `https://<YOUR_VERCEL_APP>.vercel.app/control` in your browser and click any mode. It sets a persistent cookie and reloads.
+2. **Direct Path Testing**:
+   Point PulseGuard or test directly against dedicated paths:
+   - `https://<YOUR_VERCEL_APP>.vercel.app/mode/coming-soon`
+   - `https://<YOUR_VERCEL_APP>.vercel.app/mode/database-error`
+   - `https://<YOUR_VERCEL_APP>.vercel.app/mode/server-error-500`
+   - `https://<YOUR_VERCEL_APP>.vercel.app/mode/timeout`
+3. **Query Parameter Testing**:
+   Append `?mode=<mode_name>` to any route:
+   - `https://<YOUR_VERCEL_APP>.vercel.app/?mode=coming-soon`
+   - `https://<YOUR_VERCEL_APP>.vercel.app/about?mode=database-error`
+
+---
+
 ## 📄 License
 
 MIT License. Designed for testing and development with the PulseGuard monitoring ecosystem.
+
