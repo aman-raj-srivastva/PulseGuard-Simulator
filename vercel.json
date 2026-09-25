@@ -3,23 +3,19 @@
   "rewrites": [
     {
       "source": "/control",
-      "destination": "/api/control.js"
+      "destination": "/api/control"
     },
     {
       "source": "/control/",
-      "destination": "/api/control.js"
+      "destination": "/api/control"
     },
     {
       "source": "/api/set-mode",
-      "destination": "/api/set-mode.js"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "destination": "/api/set-mode"
     },
     {
       "source": "/(.*)",
-      "destination": "/api/[...all].js"
+      "destination": "/api/[...all]"
     }
   ]
 }

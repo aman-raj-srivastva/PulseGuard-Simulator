@@ -14,16 +14,10 @@ function getCookie(req, name) {
 }
 
 function resolvePath(req, parsedUrl) {
-  // 1. Vercel / Proxy headers
-  const xForwarded = req.headers['x-forwarded-uri'] || 
-                     req.headers['x-matched-path'] || 
-                     req.headers['x-real-path'] || 
-                     req.headers['x-original-url'];
-  if (xForwarded) {
-    const clean = xForwarded.split('?')[0];
-    if (clean && !clean.startsWith('/api/index')) {
-      return clean;
-    }
+  // 1. Check if Vercel catch-all param is present (req.query.all)
+  if (req.query && req.query.all) {
+    const slug = Array.isArray(req.query.all) ? req.query.all.join('/') : req.query.all;
+    if (slug) return slug.startsWith('/') ? slug : '/' + slug;
   }
 
   // 2. Query parameter passed via Vercel rewrite (?route=... or ?path=...)
@@ -33,9 +27,17 @@ function resolvePath(req, parsedUrl) {
     return r.startsWith('/') ? r : '/' + r;
   }
 
-  // 3. Fallback to standard parsedUrl pathname
+  // 3. Vercel / Proxy headers (filter out internal /api/ filenames)
+  const xForwarded = req.headers['x-forwarded-uri'] || 
+                     req.headers['x-original-url'] || 
+                     req.headers['x-real-path'];
+  if (xForwarded && !xForwarded.startsWith('/api/')) {
+    return xForwarded.split('?')[0];
+  }
+
+  // 4. Fallback to standard parsedUrl pathname
   let p = parsedUrl.pathname || '/';
-  if (p === '/api/index.js' || p === '/api/index' || p === '/api') {
+  if (p.startsWith('/api/')) {
     return '/';
   }
   return p;
@@ -240,8 +242,13 @@ function renderControlPage(mode) {
         .sim-btn.active { border-color: #38bdf8; background: rgba(56,189,248,0.1); }
         .sim-btn strong { font-size: 15px; display: flex; align-items: center; gap: 8px; }
         .sim-btn span { font-size: 12px; color: #94a3b8; }
-        .instruction { background: rgba(56,189,248,0.08); border-left: 4px solid #38bdf8; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.6; color: #cbd5e1; }
+        .instruction { background: rgba(56,189,248,0.08); border-left: 4px solid #38bdf8; padding: 16px; border-radius: 8px; font-size: 13px; line-height: 1.6; color: #cbd5e1; margin-bottom: 20px; }
         .instruction code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; color: #38bdf8; }
+        .direct-links { background: #0f172a; padding: 18px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); }
+        .direct-links h4 { font-size: 14px; color: #38bdf8; margin-bottom: 12px; }
+        .direct-links ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+        .direct-links a { color: #94a3b8; text-decoration: none; font-family: 'JetBrains Mono', monospace; }
+        .direct-links a:hover { color: #f8fafc; text-decoration: underline; }
       </style>
     </head>
     <body>
@@ -296,7 +303,18 @@ function renderControlPage(mode) {
           1. In your PulseGuard dashboard, click <strong>"+ Add Website"</strong>.<br>
           2. Name: <code>Sandbox Test Site</code> | Base URL: <code id="siteBaseUrl">https://pulse-guard-simulator.vercel.app</code> | Threshold: <code>1</code>.<br>
           3. Change modes from this control panel, or test direct URLs like <code>/mode/coming-soon</code> or <code>/mode/server-error-500</code>.<br>
-          4. When you click <strong>"Check Now"</strong> in PulseGuard (or wait for the 1m auto-check), it will immediately catch the outage and notify Telegram!
+          4. When you click <strong>"Check Now"</strong> in PulseGuard, it will immediately catch the outage and notify Telegram!
+        </div>
+
+        <div class="direct-links">
+          <h4>🔗 Direct Static Failure Endpoints (for deterministic monitor testing):</h4>
+          <ul>
+            <li>• Coming Soon: <a href="/mode/coming-soon" target="_blank">/mode/coming-soon</a></li>
+            <li>• HTTP 500: <a href="/mode/server-error-500" target="_blank">/mode/server-error-500</a></li>
+            <li>• DB Crash: <a href="/mode/database-error" target="_blank">/mode/database-error</a></li>
+            <li>• 404 Not Found: <a href="/mode/not-found" target="_blank">/mode/not-found</a></li>
+            <li>• Clean Healthy: <a href="/mode/healthy" target="_blank">/mode/healthy</a></li>
+          </ul>
         </div>
       </div>
 
