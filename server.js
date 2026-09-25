@@ -18,14 +18,17 @@ function handler(req, res) {
   const rawPath = parsedUrl.pathname || '/';
   const cleanPath = rawPath.replace(/\/+$/, '') || '/';
 
+  const routeParam = (parsedUrl.query && parsedUrl.query.route) ? String(parsedUrl.query.route) : '';
+  const effectivePath = routeParam ? (routeParam.startsWith('/') ? routeParam : '/' + routeParam) : cleanPath;
+
   // Support direct path-based mode: /mode/:modeName (e.g. /mode/coming-soon)
   let pathMode = null;
-  if (cleanPath.startsWith('/mode/')) {
-    pathMode = cleanPath.split('/')[2];
+  if (effectivePath.startsWith('/mode/')) {
+    pathMode = effectivePath.split('/')[2];
   }
 
   // Handle Control / Mode Switch API
-  if (cleanPath === '/api/set-mode' || parsedUrl.pathname === '/api/set-mode') {
+  if (effectivePath === '/api/set-mode' || parsedUrl.pathname === '/api/set-mode') {
     const newMode = parsedUrl.query.mode;
     if (newMode) {
       currentMode = newMode;
@@ -43,13 +46,17 @@ function handler(req, res) {
   const activeMode = parsedUrl.query.mode || pathMode || getCookie(req, 'sim_mode') || currentMode;
 
   // Decide whether to show Control Dashboard vs Simulated Target Site
-  // Show Control Dashboard if:
-  // - URL is /control
-  // - URL is /api/control
-  // - Query is ?view=control
-  // - OR root path / is requested in a browser without explicit ?view=site
-  const wantsSiteView = parsedUrl.query.view === 'site' || cleanPath === '/site' || cleanPath === '/about' || cleanPath === '/products' || cleanPath === '/api/status';
-  const isControlPage = cleanPath === '/control' || cleanPath === '/api/control' || parsedUrl.query.view === 'control' || (!wantsSiteView && cleanPath === '/');
+  const wantsSiteView = parsedUrl.query.view === 'site' || 
+                        effectivePath === '/site' || 
+                        effectivePath.startsWith('/about') || 
+                        effectivePath.startsWith('/products') || 
+                        effectivePath.startsWith('/api/status');
+
+  const isControlPage = effectivePath === '/control' || 
+                        effectivePath.startsWith('/control') || 
+                        effectivePath === '/api/control' || 
+                        parsedUrl.query.view === 'control' || 
+                        (!wantsSiteView && (effectivePath === '/' || effectivePath === '/api/index'));
 
   // 1. Control Dashboard: Always renders if requested, or by default at root /
   if (isControlPage) {
